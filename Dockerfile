@@ -1,30 +1,38 @@
-# ---------- Build stage ----------
+# ---------- Build Stage ----------
 FROM maven:3.9.5-eclipse-temurin-21 AS build
+
 WORKDIR /workspace
 
-# Copy pom.xml and download dependencies first (caching layer)
-COPY pom.xml ./
-RUN mvn dependency:go-offline
+# Copy Maven files first for dependency caching
+COPY pom.xml .
+COPY mvnw .
+COPY .mvn .mvn
 
-# Copy source code and build the JAR
-COPY src/ src/
-RUN mvn package -DskipTests -B
+# Download dependencies
+RUN chmod +x mvnw && ./mvnw dependency:go-offline
 
-# ---------- Runtime stage ----------
+# Copy source code
+COPY src src
+
+# Build application
+RUN ./mvnw clean package -DskipTests
+
+# ---------- Runtime Stage ----------
 FROM bellsoft/liberica-runtime-container:jre-21-slim-musl
+
 WORKDIR /app
 
-# Create a non-root user for security
+# Create non-root user
 RUN addgroup -S appuser && adduser -S -G appuser appuser
 
-# Copy the compiled JAR from the build stage
-COPY --from=build /workspace/target/eureka-server-0.0.1-SNAPSHOT.jar /app/eureka-server.jar
+# Copy jar from build stage
+COPY --from=build /workspace/target/*.jar /app/eureka-server.jar
 
-# Expose the Eureka Server port
+# Expose Eureka port
 EXPOSE 8761
 
-# Use the non-root user
+# Switch user
 USER appuser
 
-# Entrypoint with container-friendly JVM flags
+# Run application
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/eureka-server.jar"]
